@@ -87,7 +87,7 @@ def require_auth(f):
     return decorated_function
 
 # ============================================================
-# USER MANAGEMENT FUNCTIONS
+# USER MANAGEMENT FUNCTIONS (No expiry)
 # ============================================================
 
 def generate_uid():
@@ -135,7 +135,6 @@ def parse_m3u_content(content):
         line = lines[i].strip()
         
         if line.startswith('#EXTINF:'):
-            # Parse EXTINF line
             channel_info = {
                 'name': '',
                 'logo': '',
@@ -144,7 +143,6 @@ def parse_m3u_content(content):
                 'url': ''
             }
             
-            # Extract attributes
             tvg_logo_match = re.search(r'tvg-logo="([^"]*)"', line)
             if tvg_logo_match:
                 channel_info['logo'] = tvg_logo_match.group(1)
@@ -157,11 +155,9 @@ def parse_m3u_content(content):
             if tvg_id_match:
                 channel_info['tvg_id'] = tvg_id_match.group(1)
             
-            # Extract channel name (after the last comma)
             if ',' in line:
                 channel_info['name'] = line.split(',')[-1].strip()
             
-            # Get URL from next non-comment line
             j = i + 1
             while j < len(lines):
                 next_line = lines[j].strip()
@@ -191,14 +187,12 @@ def fetch_and_import_sports_channels():
         channels = parse_m3u_content(response.text)
         logger.info(f"📥 Parsed {len(channels)} channels from FootyFeed")
         
-        # Group channels by category
         categories = {}
         for channel in channels:
             group = channel.get('group', 'Sports')
             if group not in categories:
                 categories[group] = []
             
-            # Check if channel already exists (avoid duplicates)
             existing = False
             if 'categories' in channels_db and group in channels_db['categories']:
                 for existing_ch in channels_db['categories'][group]:
@@ -216,7 +210,6 @@ def fetch_and_import_sports_channels():
                     'tokenApi': ''
                 })
         
-        # Add to channels_db
         if 'categories' not in channels_db:
             channels_db['categories'] = {}
         
@@ -236,7 +229,7 @@ def fetch_and_import_sports_channels():
             "status": "success",
             "total_parsed": len(channels),
             "total_added": total_added,
-            "categories": {k: len(v) for k, v in categories.items()}
+            "categories": {k: len(v) for k, v in categories.items() if v}
         }
         
     except Exception as e:
@@ -570,7 +563,6 @@ class M3UGenerator:
         return channels
 
     def get_custom_channels(self):
-        """Get custom channels from database"""
         channels = []
         for category, channel_list in channels_db.get('categories', {}).items():
             for channel in channel_list:
@@ -587,7 +579,6 @@ class M3UGenerator:
         return channels
 
     def format_channel_url(self, link, keys='', api='', tokenApi=''):
-        """Format the channel URL with proper MPD + DRM key support"""
         if not link:
             return link
         
@@ -673,6 +664,7 @@ class M3UGenerator:
         m3u_lines.append(f'#Source: Ivan-Flux: {len(ivan_events)} | Fancode: {len(fancode_events)} | SonyLIV: {len(sonyliv_events)} | Custom: {len(custom_channels)}')
         m3u_lines.append('')
         
+        # Add User Info channel if uid is provided
         if uid:
             user = get_user_info(uid)
             if user:
@@ -1058,7 +1050,7 @@ https://example.com/placeholder.m3u8
     return response
 
 # ============================================================
-# ADMIN PANEL WITH MPD + DRM SUPPORT + BULK IMPORT
+# ADMIN PANEL
 # ============================================================
 
 @app.route('/adminpanel')
@@ -1208,8 +1200,6 @@ def admin_panel():
             .btn-success:hover { background: #1a4a7a !important; }
             .btn-danger { background: #e94560 !important; }
             .btn-danger:hover { background: #c73652 !important; }
-            .btn-warning { background: #d4a017 !important; color: #1a1a2e !important; }
-            .btn-warning:hover { background: #e6b422 !important; }
             .btn-import { background: #533483 !important; }
             .btn-import:hover { background: #6a44a0 !important; }
             table {
@@ -1266,12 +1256,6 @@ def admin_panel():
             }
             .tab-content { display: none; }
             .tab-content.active { display: block; }
-            .keys-info {
-                font-size: 11px;
-                color: #f1fa8c;
-                display: block;
-                margin-top: 4px;
-            }
             .drm-help {
                 background: #1a1a2e;
                 padding: 10px;
@@ -1308,15 +1292,7 @@ def admin_panel():
                 padding: 10px;
                 border-radius: 4px;
                 display: none;
-            }
-            .category-badge {
-                display: inline-block;
-                background: #1a3a5a;
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                color: #8be9fd;
-                margin-left: 8px;
+                white-space: pre-line;
             }
             @media (max-width: 600px) {
                 .container { padding: 15px; }
@@ -1364,7 +1340,7 @@ def admin_panel():
                 {% for category, channels in categories.items() %}
                 <div class="section">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                        <h3 style="color: #50fa7b; margin: 0;">📁 {{ category }} <span class="category-badge">{{ channels|length }} channels</span></h3>
+                        <h3 style="color: #50fa7b; margin: 0;">📁 {{ category }} <span style="color: #888; font-size: 14px;">({{ channels|length }} channels)</span></h3>
                         <div>
                             <button onclick="deleteCategory('{{ category }}')" class="btn-danger" style="padding: 5px 15px; font-size: 12px;">🗑️ Delete Category</button>
                         </div>
@@ -1389,30 +1365,18 @@ def admin_panel():
                             <thead>
                                 <tr>
                                     <th>Name</th>
-                                    <th>MPD URL</th>
-                                    <th>DRM Keys</th>
-                                    <th>API</th>
-                                    <th style="width: 50px;">Action</th>
+                                    <th>URL</th>
+                                    <th>Keys</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for channel in channels %}
                                 <tr>
                                     <td>{{ channel.name }}</td>
-                                    <td style="word-break: break-all; font-size: 12px; color: #8be9fd; max-width: 200px;">{{ channel.url }}</td>
+                                    <td style="word-break: break-all; font-size: 12px; color: #8be9fd; max-width: 250px;">{{ channel.url }}</td>
                                     <td style="font-size: 12px; color: #f1fa8c; max-width: 150px; word-break: break-all;">
-                                        {% if channel.keys %}
-                                            {{ channel.keys }}
-                                        {% else %}
-                                            <span style="color: #888;">-</span>
-                                        {% endif %}
-                                    </td>
-                                    <td style="font-size: 12px; color: #50fa7b; max-width: 150px; word-break: break-all;">
-                                        {% if channel.api %}
-                                            {{ channel.api }}
-                                        {% else %}
-                                            <span style="color: #888;">-</span>
-                                        {% endif %}
+                                        {% if channel.keys %}{{ channel.keys }}{% else %}<span style="color: #888;">-</span>{% endif %}
                                     </td>
                                     <td>
                                         <button onclick="editFields('{{ category }}', {{ loop.index0 }})" class="delete-btn" style="color: #8be9fd; margin-right: 5px;" title="Edit">✏️</button>
@@ -1425,7 +1389,7 @@ def admin_panel():
                     </div>
                 </div>
                 {% else %}
-                <p style="color: #888; text-align: center; padding: 40px;">No categories found. Create one or import channels!</p>
+                <p style="color: #888; text-align: center; padding: 40px;">No categories found. Create one or use Bulk Import!</p>
                 {% endfor %}
             </div>
             
@@ -1456,21 +1420,12 @@ def admin_panel():
                 
                 <div class="import-box">
                     <h3>🏈 Import Sports Channels from FootyFeed</h3>
-                    <p>This will fetch all sports channels from <code style="color: #8be9fd;">https://footyfeedreal.pages.dev/sports.json</code></p>
-                    <p>Channels will be organized by their group-title categories.</p>
+                    <p>Fetches all channels from <code style="color: #8be9fd;">https://footyfeedreal.pages.dev/sports.json</code></p>
+                    <p>Channels will be organized by their group-title categories automatically.</p>
                     <button onclick="importFootyFeed()" class="btn-import" style="padding: 15px 40px; font-size: 16px; margin: 15px 0;">
                         📥 Import Sports Channels
                     </button>
                     <div id="import-status" class="import-status"></div>
-                </div>
-                
-                <div class="import-box" style="border-color: #0f3460;">
-                    <h3>📋 Import from Custom M3U URL</h3>
-                    <p>Enter any M3U playlist URL to import channels from.</p>
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px;">
-                        <input type="url" id="custom_m3u_url" placeholder="https://example.com/playlist.m3u" style="flex: 1; min-width: 250px; padding: 12px; border-radius: 6px; border: 1px solid #2a2a4e; background: #1a1a2e; color: #eee;">
-                        <button onclick="importCustomM3U()" class="btn-success" style="padding: 12px 30px;">📥 Import</button>
-                    </div>
                 </div>
             </div>
             
@@ -1522,9 +1477,7 @@ def admin_panel():
                 
                 <h2>📋 Quick Create</h2>
                 <div class="section">
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                        <button onclick="quickCreate()" class="btn-success" style="padding: 10px 20px;">👤 Create Permanent User</button>
-                    </div>
+                    <button onclick="quickCreate()" class="btn-success" style="padding: 10px 20px;">👤 Create Permanent User</button>
                 </div>
             </div>
             
@@ -1571,14 +1524,14 @@ def admin_panel():
             toast.style.display = 'block';
             setTimeout(() => {
                 toast.style.display = 'none';
-            }, 5000);
+            }, 4000);
         }
         
         async function importFootyFeed() {
             const statusDiv = document.getElementById('import-status');
             statusDiv.style.display = 'block';
             statusDiv.className = 'import-status toast-info';
-            statusDiv.textContent = '🔄 Importing channels from FootyFeed... This may take a moment.';
+            statusDiv.textContent = '🔄 Importing channels from FootyFeed... This may take 10-30 seconds.';
             
             try {
                 const res = await fetch(`${baseUrl}/admin/import-footyfeed?key=${adminKey}`, {
@@ -1588,48 +1541,16 @@ def admin_panel():
                 
                 if (data.status === 'success') {
                     statusDiv.className = 'import-status toast-success';
-                    let msg = `✅ Imported ${data.total_added} channels!`;
+                    let msg = `✅ Successfully imported ${data.total_added} channels!\\n\\n`;
                     if (data.categories) {
-                        msg += '\\n\\nCategories:';
+                        msg += 'Categories imported:\\n';
                         for (const [cat, count] of Object.entries(data.categories)) {
-                            msg += `\\n• ${cat}: ${count}`;
+                            msg += `• ${cat}: ${count}\\n`;
                         }
                     }
                     statusDiv.textContent = msg;
                     showToast(`✅ Imported ${data.total_added} channels!`);
-                    setTimeout(() => location.reload(), 3000);
-                } else {
-                    statusDiv.className = 'import-status toast-error';
-                    statusDiv.textContent = '❌ Error: ' + (data.message || data.error);
-                    showToast('❌ Import failed', 'error');
-                }
-            } catch (e) {
-                statusDiv.className = 'import-status toast-error';
-                statusDiv.textContent = '❌ Error: ' + e.message;
-                showToast('❌ Import error', 'error');
-            }
-        }
-        
-        async function importCustomM3U() {
-            const url = document.getElementById('custom_m3u_url').value.trim();
-            if (!url) return showToast('Please enter a URL', 'error');
-            
-            const statusDiv = document.getElementById('import-status');
-            statusDiv.style.display = 'block';
-            statusDiv.className = 'import-status toast-info';
-            statusDiv.textContent = '🔄 Importing from custom URL...';
-            
-            try {
-                const res = await fetch(`${baseUrl}/admin/import-m3u?key=${adminKey}&url=${encodeURIComponent(url)}`, {
-                    method: 'POST'
-                });
-                const data = await res.json();
-                
-                if (data.status === 'success') {
-                    statusDiv.className = 'import-status toast-success';
-                    statusDiv.textContent = `✅ Imported ${data.total_added} channels!`;
-                    showToast(`✅ Imported ${data.total_added} channels!`);
-                    setTimeout(() => location.reload(), 3000);
+                    setTimeout(() => location.reload(), 4000);
                 } else {
                     statusDiv.className = 'import-status toast-error';
                     statusDiv.textContent = '❌ Error: ' + (data.message || data.error);
@@ -1653,7 +1574,7 @@ def admin_panel():
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    showToast('✅ Category created successfully!');
+                    showToast('✅ Category created!');
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showToast('❌ ' + data.error, 'error');
@@ -1674,7 +1595,7 @@ def admin_panel():
             const tokenApi = inputs[4].value.trim();
             const logo = inputs[5].value.trim();
             
-            if (!name || !url) return showToast('Please enter name and MPD URL', 'error');
+            if (!name || !url) return showToast('Please enter name and URL', 'error');
             
             try {
                 const res = await fetch(`${baseUrl}/admin/channel?key=${adminKey}&category=${encodeURIComponent(category)}&name=${encodeURIComponent(name)}&url=${encodeURIComponent(url)}&logo=${encodeURIComponent(logo)}&keys=${encodeURIComponent(keys)}&api=${encodeURIComponent(api)}&tokenApi=${encodeURIComponent(tokenApi)}`, {
@@ -1682,7 +1603,7 @@ def admin_panel():
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    showToast('✅ Channel added successfully!');
+                    showToast('✅ Channel added!');
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showToast('❌ ' + data.error, 'error');
@@ -1767,7 +1688,7 @@ def admin_panel():
                 const res = await fetch(url);
                 const data = await res.json();
                 if (data.status === 'success') {
-                    showToast(`✅ User created: ${data.uid} (permanent)`);
+                    showToast(`✅ User created: ${data.uid}`);
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showToast('❌ ' + data.error, 'error');
@@ -1844,12 +1765,11 @@ def admin_panel():
 )
 
 # ============================================================
-# BULK IMPORT ADMIN ENDPOINTS
+# BULK IMPORT ADMIN ENDPOINT
 # ============================================================
 
 @app.route('/admin/import-footyfeed', methods=['POST'])
 def admin_import_footyfeed():
-    """Import sports channels from FootyFeed"""
     admin_key = request.args.get('key', '')
     if admin_key != os.environ.get('ADMIN_KEY', 'admin123'):
         return jsonify({"error": "Invalid admin key"}), 401
@@ -1860,75 +1780,6 @@ def admin_import_footyfeed():
         update_playlist()
     
     return jsonify(result)
-
-@app.route('/admin/import-m3u', methods=['POST'])
-def admin_import_m3u():
-    """Import channels from a custom M3U URL"""
-    admin_key = request.args.get('key', '')
-    if admin_key != os.environ.get('ADMIN_KEY', 'admin123'):
-        return jsonify({"error": "Invalid admin key"}), 401
-    
-    url = request.args.get('url', '')
-    if not url:
-        return jsonify({"error": "URL required"}), 400
-    
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        
-        channels = parse_m3u_content(response.text)
-        logger.info(f"📥 Parsed {len(channels)} channels from custom URL")
-        
-        # Group channels by category
-        categories = {}
-        for channel in channels:
-            group = channel.get('group', 'Imported')
-            if group not in categories:
-                categories[group] = []
-            
-            # Check for duplicates
-            existing = False
-            if 'categories' in channels_db and group in channels_db['categories']:
-                for existing_ch in channels_db['categories'][group]:
-                    if existing_ch.get('url') == channel['url']:
-                        existing = True
-                        break
-            
-            if not existing:
-                categories[group].append({
-                    'name': channel['name'],
-                    'url': channel['url'],
-                    'logo': channel.get('logo', ''),
-                    'keys': '',
-                    'api': '',
-                    'tokenApi': ''
-                })
-        
-        # Add to channels_db
-        if 'categories' not in channels_db:
-            channels_db['categories'] = {}
-        
-        total_added = 0
-        for group, channel_list in categories.items():
-            if group not in channels_db['categories']:
-                channels_db['categories'][group] = []
-            
-            channels_db['categories'][group].extend(channel_list)
-            total_added += len(channel_list)
-        
-        save_channels()
-        update_playlist()
-        
-        return jsonify({
-            "status": "success",
-            "total_parsed": len(channels),
-            "total_added": total_added,
-            "categories": {k: len(v) for k, v in categories.items() if v}
-        })
-        
-    except Exception as e:
-        logger.error(f"❌ Error importing custom M3U: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 # ============================================================
 # ADMIN API ENDPOINTS
@@ -2021,7 +1872,7 @@ def admin_update_channel():
     
     save_channels()
     update_playlist()
-    logger.info(f"✅ Updated channel '{channels_db['categories'][category][index]['name']}' in '{category}'")
+    logger.info(f"✅ Updated channel in '{category}'")
     return jsonify({"status": "success", "message": "Channel updated"})
 
 @app.route('/admin/channel/delete', methods=['DELETE'])
@@ -2045,7 +1896,7 @@ def admin_delete_channel():
     removed = channels_db['categories'][category].pop(index)
     save_channels()
     update_playlist()
-    logger.info(f"✅ Deleted channel '{removed.get('name')}' from '{category}'")
+    logger.info(f"✅ Deleted channel '{removed.get('name')}'")
     return jsonify({"status": "success", "message": "Channel deleted"})
 
 @app.route('/admin/category/delete', methods=['DELETE'])
@@ -2104,7 +1955,7 @@ def admin_create_custom_user():
     }
     
     save_users()
-    logger.info(f"✅ Created custom user: {uid} (permanent)")
+    logger.info(f"✅ Created custom user: {uid}")
     
     return jsonify({
         "status": "success",
@@ -2350,7 +2201,6 @@ def get_raw_data():
 
 @app.route('/test')
 def test():
-    """Test endpoint to check if server is running"""
     return jsonify({
         "status": "ok",
         "message": "Server is running",
@@ -2362,12 +2212,10 @@ def test():
 # MAIN
 # ============================================================
 
-# Initialize scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(update_playlist, 'interval', hours=1, id='playlist_update')
 scheduler.start()
 
-# Initial update
 update_playlist()
 
 if __name__ == '__main__':
